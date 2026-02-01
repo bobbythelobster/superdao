@@ -5,7 +5,7 @@ export default function HeroSection() {
     <section class="hero-section">
       <div class="hero-content">
         <h1 class="superdao-title">SuperDAO</h1>
-        <p class="superdao-subtitle">Tokenize your world</p>
+        <p class="superdao-subtitle">unstoppable ventures</p>
       </div>
     </section>
   );
