@@ -195,52 +195,90 @@ export function initWebGLBackground(canvas: HTMLCanvasElement): (() => void) | n
     ),
   };
 
+  // Theme colors defined in JS to match CSS variables
+  // Light theme (default)
+  const LIGHT_THEME = {
+    bg: [1.0, 1.0, 1.0],      // #ffffff
+    dot: [0.333, 0.333, 0.333] // #555555
+  };
+  
+  // Dark theme
+  const DARK_THEME = {
+    bg: [0.0, 0.0, 0.0],      // #000000
+    dot: [0.667, 0.667, 0.667] // #aaaaaa
+  };
+
   // Parse a CSS color string (hex or rgb()) into normalized [r, g, b]
-  function parseCSSColor(raw: string): [number, number, number] {
+  function parseCSSColor(raw: string): [number, number, number] | null {
     const s = raw.trim();
-    console.log('[WebGL] Parsing color:', s);
     
-    // Match #RGB, #RRGGBB (with optional whitespace before #)
-    const hex = s.match(/^\s*#([0-9a-f]{3,6})\s*$/i);
+    // Match #RGB, #RRGGBB
+    const hex = s.match(/^#([0-9a-f]{3,6})$/i);
     if (hex) {
       let h = hex[1];
       if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
-      const result = [
+      return [
         parseInt(h.slice(0, 2), 16) / 255,
         parseInt(h.slice(2, 4), 16) / 255,
         parseInt(h.slice(4, 6), 16) / 255,
       ];
-      console.log('[WebGL] Parsed hex:', h, '->', result);
-      return result as [number, number, number];
     }
     
     // Match rgb(r, g, b) or rgba(r, g, b, a)
     const rgb = s.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
     if (rgb) {
-      const result = [parseInt(rgb[1]) / 255, parseInt(rgb[2]) / 255, parseInt(rgb[3]) / 255];
-      console.log('[WebGL] Parsed rgb:', result);
-      return result as [number, number, number];
+      return [parseInt(rgb[1]) / 255, parseInt(rgb[2]) / 255, parseInt(rgb[3]) / 255];
     }
     
-    console.warn('[WebGL] Failed to parse color, falling back to white:', s);
-    return [1, 1, 1]; // fallback white
+    return null;
   }
 
+  // Get current system color scheme preference
+  function getSystemColorScheme(): "light" | "dark" {
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+
+  // Get theme colors from CSS variables, with fallback to JS theme
   function getThemeColors() {
+    // Try to read from computed style (this may not respect dark mode on :root)
     const style = getComputedStyle(document.documentElement);
-    const bg = parseCSSColor(style.getPropertyValue("--color-bg"));
-    const dot = parseCSSColor(style.getPropertyValue("--color-dot"));
-    return { bgR: bg[0], bgG: bg[1], bgB: bg[2], dotR: dot[0], dotG: dot[1], dotB: dot[2] };
+    const bgRaw = style.getPropertyValue("--color-bg").trim();
+    const dotRaw = style.getPropertyValue("--color-dot").trim();
+    
+    const bgParsed = bgRaw ? parseCSSColor(bgRaw) : null;
+    const dotParsed = dotRaw ? parseCSSColor(dotRaw) : null;
+    
+    // If CSS parsing fails, use JS theme based on system preference
+    const isDark = getSystemColorScheme() === "dark";
+    const theme = isDark ? DARK_THEME : LIGHT_THEME;
+    
+    const bg = bgParsed || theme.bg;
+    const dot = dotParsed || theme.dot;
+    
+    // Debug logging
+    if (process.env.NODE_ENV === "development") {
+      console.log('[WebGL] Theme:', isDark ? 'dark' : 'light');
+      console.log('[WebGL] CSS bg:', bgRaw, '->', bg);
+      console.log('[WebGL] CSS dot:', dotRaw, '->', dot);
+    }
+    
+    return { 
+      bgR: bg[0], bgG: bg[1], bgB: bg[2], 
+      dotR: dot[0], dotG: dot[1], dotB: dot[2] 
+    };
   }
 
   let themeColors = getThemeColors();
 
-  // Listen for color scheme changes and re-read CSS variables
+  // Listen for color scheme changes and update theme
   const colorSchemeQuery = window.matchMedia("(prefers-color-scheme: dark)");
   const onColorSchemeChange = () => {
-    // Defer to next frame so browser has applied new CSS values
+    // Defer to next frame to sync with any CSS transitions
     requestAnimationFrame(() => {
       themeColors = getThemeColors();
+      if (process.env.NODE_ENV === "development") {
+        console.log('[WebGL] System theme changed to:', getSystemColorScheme());
+      }
     });
   };
   colorSchemeQuery.addEventListener("change", onColorSchemeChange);
