@@ -198,22 +198,31 @@ export function initWebGLBackground(canvas: HTMLCanvasElement): (() => void) | n
   // Parse a CSS color string (hex or rgb()) into normalized [r, g, b]
   function parseCSSColor(raw: string): [number, number, number] {
     const s = raw.trim();
-    // Match #RGB, #RRGGBB
-    const hex = s.match(/^#([0-9a-f]{3,8})$/i);
+    console.log('[WebGL] Parsing color:', s);
+    
+    // Match #RGB, #RRGGBB (with optional whitespace before #)
+    const hex = s.match(/^\s*#([0-9a-f]{3,6})\s*$/i);
     if (hex) {
       let h = hex[1];
       if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
-      return [
+      const result = [
         parseInt(h.slice(0, 2), 16) / 255,
         parseInt(h.slice(2, 4), 16) / 255,
         parseInt(h.slice(4, 6), 16) / 255,
       ];
+      console.log('[WebGL] Parsed hex:', h, '->', result);
+      return result as [number, number, number];
     }
+    
     // Match rgb(r, g, b) or rgba(r, g, b, a)
     const rgb = s.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
     if (rgb) {
-      return [parseInt(rgb[1]) / 255, parseInt(rgb[2]) / 255, parseInt(rgb[3]) / 255];
+      const result = [parseInt(rgb[1]) / 255, parseInt(rgb[2]) / 255, parseInt(rgb[3]) / 255];
+      console.log('[WebGL] Parsed rgb:', result);
+      return result as [number, number, number];
     }
+    
+    console.warn('[WebGL] Failed to parse color, falling back to white:', s);
     return [1, 1, 1]; // fallback white
   }
 
