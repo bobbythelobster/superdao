@@ -163,7 +163,7 @@ export function initWebGLBackground(canvas: HTMLCanvasElement): (() => void) | n
       startAngle: Math.random() * Math.PI * 2,
       speed: 0.3 + Math.random() * 0.7,
       opacity: 0.1 + Math.random() * 0.4,
-      dotRadius: 0.5, // 100% of viewport (radius = 50% of minDim, diameter = 100%)
+      dotRadius: 0.08, // 8% of viewport = visible orbiting dots
     };
   });
 
