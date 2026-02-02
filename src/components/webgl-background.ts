@@ -204,8 +204,8 @@ export function initWebGLBackground(canvas: HTMLCanvasElement): (() => void) | n
   
   // Dark theme
   const DARK_THEME = {
-    bg: [0.0, 0.0, 0.0],      // #000000
-    dot: [0.667, 0.667, 0.667] // #aaaaaa
+    bg: [0.039, 0.039, 0.039], // #0a0a0a - off-black
+    dot: [0.667, 0.667, 0.667]  // #aaaaaa
   };
 
   // Get current system color scheme preference
