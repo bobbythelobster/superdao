@@ -10,7 +10,7 @@ void main() {
 }
 `;
 
-// Fragment shader — render dots on white background with circular orbits
+// Fragment shader — render dots with dynamic background/dot colors from CSS
 const DOT_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 
@@ -19,17 +19,17 @@ out vec4 fragColor;
 
 uniform float u_time;
 uniform vec2 u_resolution;
+uniform vec3 u_bgColor;
+uniform vec3 u_dotColor;
 
 uniform vec3 u_dotCenter[${DOT_COUNT}];  // xy = center (0-1), z = orbitRadius (0-1)
 uniform vec4 u_dotParams[${DOT_COUNT}];  // x = startAngle, y = speed, z = opacity, w = dotRadius (0-1)
-uniform vec3 u_bgColor;
-uniform vec3 u_dotColor;
 
 void main() {
   vec2 fragPos = v_uv * u_resolution;
   float minDim = min(u_resolution.x, u_resolution.y);
 
-  vec3 dotColor = u_dotColor;
+  // Start with background color from CSS
   vec3 result = u_bgColor;
 
   for (int i = 0; i < ${DOT_COUNT}; i++) {
@@ -46,13 +46,47 @@ void main() {
     float gradient = 1.0 - smoothstep(0.0, dotRadius, dist);
     float alpha = gradient * u_dotParams[i].z;
 
-    // Alpha blend each dot over the result
-    result = mix(result, dotColor, alpha);
+    // Alpha blend each dot over the result using dot color from CSS
+    result = mix(result, u_dotColor, alpha);
   }
 
   fragColor = vec4(result, 1.0);
 }
 `;
+
+// Parse CSS color (hex or rgb) to normalized RGB values
+function parseCSSColor(color: string): [number, number, number] {
+  // Handle hex colors
+  if (color.startsWith("#")) {
+    const hex = color.slice(1);
+    const r = parseInt(hex.slice(0, 2), 16) / 255;
+    const g = parseInt(hex.slice(2, 4), 16) / 255;
+    const b = parseInt(hex.slice(4, 6), 16) / 255;
+    return [r, g, b];
+  }
+  // Handle rgb/rgba colors
+  const match = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+  if (match) {
+    return [
+      parseInt(match[1]) / 255,
+      parseInt(match[2]) / 255,
+      parseInt(match[3]) / 255,
+    ];
+  }
+  // Fallback to white
+  return [1, 1, 1];
+}
+
+// Read CSS custom property colors from computed styles
+function getThemeColors(): { bg: [number, number, number]; dot: [number, number, number] } {
+  const styles = getComputedStyle(document.documentElement);
+  const bgColor = styles.getPropertyValue("--color-bg").trim() || "#ffffff";
+  const dotColor = styles.getPropertyValue("--color-dot").trim() || "#555555";
+  return {
+    bg: parseCSSColor(bgColor),
+    dot: parseCSSColor(dotColor),
+  };
+}
 
 // Separable Gaussian blur shader
 const BLUR_FRAGMENT_SHADER = `#version 300 es
@@ -195,55 +229,18 @@ export function initWebGLBackground(canvas: HTMLCanvasElement): (() => void) | n
     ),
   };
 
-  // Parse a CSS color string (hex or rgb()) into normalized [r, g, b]
-  function parseCSSColor(raw: string): [number, number, number] {
-    const s = raw.trim();
-    console.log('[WebGL] Parsing color:', s);
-    
-    // Match #RGB, #RRGGBB (with optional whitespace before #)
-    const hex = s.match(/^\s*#([0-9a-f]{3,6})\s*$/i);
-    if (hex) {
-      let h = hex[1];
-      if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
-      const result = [
-        parseInt(h.slice(0, 2), 16) / 255,
-        parseInt(h.slice(2, 4), 16) / 255,
-        parseInt(h.slice(4, 6), 16) / 255,
-      ];
-      console.log('[WebGL] Parsed hex:', h, '->', result);
-      return result as [number, number, number];
-    }
-    
-    // Match rgb(r, g, b) or rgba(r, g, b, a)
-    const rgb = s.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
-    if (rgb) {
-      const result = [parseInt(rgb[1]) / 255, parseInt(rgb[2]) / 255, parseInt(rgb[3]) / 255];
-      console.log('[WebGL] Parsed rgb:', result);
-      return result as [number, number, number];
-    }
-    
-    console.warn('[WebGL] Failed to parse color, falling back to white:', s);
-    return [1, 1, 1]; // fallback white
-  }
-
-  function getThemeColors() {
-    const style = getComputedStyle(document.documentElement);
-    const bg = parseCSSColor(style.getPropertyValue("--color-bg"));
-    const dot = parseCSSColor(style.getPropertyValue("--color-dot"));
-    return { bgR: bg[0], bgG: bg[1], bgB: bg[2], dotR: dot[0], dotG: dot[1], dotB: dot[2] };
-  }
-
+  // Track current theme colors (read from CSS custom properties)
   let themeColors = getThemeColors();
 
-  // Listen for color scheme changes and re-read CSS variables
-  const colorSchemeQuery = window.matchMedia("(prefers-color-scheme: dark)");
-  const onColorSchemeChange = () => {
-    // Defer to next frame so browser has applied new CSS values
+  // Listen for system theme changes
+  const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+  const handleThemeChange = () => {
+    // Small delay to allow CSS to update
     requestAnimationFrame(() => {
       themeColors = getThemeColors();
     });
   };
-  colorSchemeQuery.addEventListener("change", onColorSchemeChange);
+  mediaQuery.addEventListener("change", handleThemeChange);
 
   const blurU = {
     texture: gl.getUniformLocation(blurProgram, "u_texture"),
@@ -290,14 +287,14 @@ export function initWebGLBackground(canvas: HTMLCanvasElement): (() => void) | n
 
     gl!.bindVertexArray(quadVao);
 
-    // Pass 1: Render dots (white bg + colored dots) to fbA
+    // Pass 1: Render dots (dynamic bg + colored dots) to fbA
     gl!.bindFramebuffer(gl!.FRAMEBUFFER, fbA.framebuffer);
     gl!.viewport(0, 0, width, height);
     gl!.useProgram(dotProgram);
     gl!.uniform1f(dotU.time, time);
     gl!.uniform2f(dotU.resolution, width, height);
-    gl!.uniform3f(dotU.bgColor, themeColors.bgR, themeColors.bgG, themeColors.bgB);
-    gl!.uniform3f(dotU.dotColor, themeColors.dotR, themeColors.dotG, themeColors.dotB);
+    gl!.uniform3f(dotU.bgColor, themeColors.bg[0], themeColors.bg[1], themeColors.bg[2]);
+    gl!.uniform3f(dotU.dotColor, themeColors.dot[0], themeColors.dot[1], themeColors.dot[2]);
 
     for (let i = 0; i < DOT_COUNT; i++) {
       gl!.uniform3f(dotU.dotCenter[i], dots[i].centerX, dots[i].centerY, dots[i].orbitRadius);
@@ -341,6 +338,6 @@ export function initWebGLBackground(canvas: HTMLCanvasElement): (() => void) | n
 
   return () => {
     cancelAnimationFrame(animationId);
-    colorSchemeQuery.removeEventListener("change", onColorSchemeChange);
+    mediaQuery.removeEventListener("change", handleThemeChange);
   };
 }

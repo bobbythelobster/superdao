@@ -42,12 +42,12 @@ export default function EmailSection() {
               required
             />
             <button type="submit" class="email-button">
-              Request Access
+              Join Waitlist
             </button>
           </form>
         ) : (
           <div class="success-message">
-            <p>You're on the list. We'll be in touch.</p>
+            <p>Welcome aboard. We'll notify you when it's your turn.</p>
           </div>
         )}
       </div>
