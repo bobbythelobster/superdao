@@ -120,6 +120,61 @@ void main() {
 }
 `;
 
+// Final output shader with aesthetic film grain noise
+const OUTPUT_FRAGMENT_SHADER = `#version 300 es
+precision highp float;
+
+in vec2 v_uv;
+out vec4 fragColor;
+
+uniform sampler2D u_texture;
+uniform float u_time;
+
+// PCG-based random - high quality, no visible patterns
+uint pcg(uint v) {
+  uint state = v * 747796405u + 2891336453u;
+  uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+  return (word >> 22u) ^ word;
+}
+
+// Convert pixel coords + frame to random float [0,1]
+float rand(vec2 co, float frame) {
+  uint x = uint(co.x);
+  uint y = uint(co.y);
+  uint f = uint(frame);
+  uint seed = (x * 1973u + y * 9277u + f * 26699u) | 1u;
+  return float(pcg(seed)) / 4294967295.0;
+}
+
+void main() {
+  vec3 color = texture(u_texture, v_uv).rgb;
+  
+  // Frame number for flickering grain (changes every frame)
+  float frame = floor(u_time * 60.0);
+  
+  // Per-pixel random values that change each frame
+  float noiseR = rand(gl_FragCoord.xy, frame) - 0.5;
+  float noiseG = rand(gl_FragCoord.xy, frame + 1000.0) - 0.5;
+  float noiseB = rand(gl_FragCoord.xy, frame + 2000.0) - 0.5;
+  
+  // Mostly monochrome with subtle color variation
+  float mono = noiseG;
+  vec3 grain = vec3(
+    mix(mono, noiseR, 0.2),
+    mono,
+    mix(mono, noiseB, 0.2)
+  );
+  
+  // Intensity based on luminance (more visible in midtones)
+  float luma = dot(color, vec3(0.299, 0.587, 0.114));
+  float intensity = 0.18 * (1.0 - abs(luma - 0.5) * 0.4);
+  
+  color += grain * intensity;
+  
+  fragColor = vec4(color, 1.0);
+}
+`;
+
 function compileShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
   const shader = gl.createShader(type)!;
   gl.shaderSource(shader, source);
@@ -204,6 +259,7 @@ export function initWebGLBackground(canvas: HTMLCanvasElement): (() => void) | n
   // Compile programs (a_position forced to location 0 in all)
   const dotProgram = linkProgram(gl, VERTEX_SHADER, DOT_FRAGMENT_SHADER);
   const blurProgram = linkProgram(gl, VERTEX_SHADER, BLUR_FRAGMENT_SHADER);
+  const outputProgram = linkProgram(gl, VERTEX_SHADER, OUTPUT_FRAGMENT_SHADER);
 
   // Shared fullscreen quad VAO at attribute location 0
   const quadVao = gl.createVertexArray()!;
@@ -246,6 +302,11 @@ export function initWebGLBackground(canvas: HTMLCanvasElement): (() => void) | n
     texture: gl.getUniformLocation(blurProgram, "u_texture"),
     direction: gl.getUniformLocation(blurProgram, "u_direction"),
     resolution: gl.getUniformLocation(blurProgram, "u_resolution"),
+  };
+
+  const outputU = {
+    texture: gl.getUniformLocation(outputProgram, "u_texture"),
+    time: gl.getUniformLocation(outputProgram, "u_time"),
   };
 
   // Framebuffers — initialized lazily on first resize
@@ -302,33 +363,42 @@ export function initWebGLBackground(canvas: HTMLCanvasElement): (() => void) | n
     }
     gl!.drawArrays(gl!.TRIANGLE_STRIP, 0, 4);
 
-    // Multi-pass Gaussian blur: ping-pong between fbB and fbC
+    // Pass 2: Add noise to dots (fbA → fbB)
+    gl!.bindFramebuffer(gl!.FRAMEBUFFER, fbB.framebuffer);
+    gl!.viewport(0, 0, width, height);
+    gl!.useProgram(outputProgram);
+    gl!.uniform1i(outputU.texture, 0);
+    gl!.uniform1f(outputU.time, time);
+    gl!.activeTexture(gl!.TEXTURE0);
+    gl!.bindTexture(gl!.TEXTURE_2D, fbA.texture);
+    gl!.drawArrays(gl!.TRIANGLE_STRIP, 0, 4);
+
+    // Pass 3: Multi-pass Gaussian blur on noisy image
     gl!.useProgram(blurProgram);
     gl!.uniform1i(blurU.texture, 0);
     gl!.uniform2f(blurU.resolution, width, height);
-    gl!.activeTexture(gl!.TEXTURE0);
 
-    // Source for first blur pass is the dot render (fbA)
-    let readTex = fbA.texture;
+    // Source for first blur pass is the noisy render (fbB)
+    let readTex = fbB.texture;
 
     for (let p = 0; p < BLUR_PASSES; p++) {
-      // Horizontal pass → fbB
-      gl!.bindFramebuffer(gl!.FRAMEBUFFER, fbB.framebuffer);
+      // Horizontal pass → fbC
+      gl!.bindFramebuffer(gl!.FRAMEBUFFER, fbC.framebuffer);
       gl!.viewport(0, 0, width, height);
       gl!.bindTexture(gl!.TEXTURE_2D, readTex);
       gl!.uniform2f(blurU.direction, 1.0, 0.0);
       gl!.drawArrays(gl!.TRIANGLE_STRIP, 0, 4);
 
-      // Vertical pass → fbC (or screen on last pass)
+      // Vertical pass → fbA (reuse) or screen on last pass
       const isLast = p === BLUR_PASSES - 1;
-      gl!.bindFramebuffer(gl!.FRAMEBUFFER, isLast ? null : fbC.framebuffer);
+      gl!.bindFramebuffer(gl!.FRAMEBUFFER, isLast ? null : fbA.framebuffer);
       gl!.viewport(0, 0, width, height);
-      gl!.bindTexture(gl!.TEXTURE_2D, fbB.texture);
+      gl!.bindTexture(gl!.TEXTURE_2D, fbC.texture);
       gl!.uniform2f(blurU.direction, 0.0, 1.0);
       gl!.drawArrays(gl!.TRIANGLE_STRIP, 0, 4);
 
-      // Next iteration reads from fbC
-      readTex = fbC.texture;
+      // Next iteration reads from fbA
+      readTex = fbA.texture;
     }
 
     animationId = requestAnimationFrame(render);
