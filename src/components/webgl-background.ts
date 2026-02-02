@@ -27,7 +27,7 @@ uniform vec4 u_dotParams[${DOT_COUNT}];  // x = startAngle, y = speed, z = opaci
 
 void main() {
   vec2 fragPos = v_uv * u_resolution;
-  float minDim = min(u_resolution.x, u_resolution.y);
+  float maxDim = max(u_resolution.x, u_resolution.y);
 
   // Start with background color from CSS
   vec3 result = u_bgColor;
@@ -42,7 +42,7 @@ void main() {
     vec2 dotPos = center * u_resolution;
     float dist = length(fragPos - dotPos);
 
-    float dotRadius = u_dotParams[i].w * minDim;
+    float dotRadius = u_dotParams[i].w * maxDim;
     float gradient = 1.0 - smoothstep(0.0, dotRadius, dist);
     float alpha = gradient * u_dotParams[i].z;
 
@@ -260,7 +260,7 @@ export function initWebGLBackground(canvas: HTMLCanvasElement): (() => void) | n
 
   // Generate random dot parameters
   const dots = Array.from({ length: DOT_COUNT }, () => {
-    const orbitRadius = 0.2 + Math.random() * 0.8;
+    const orbitRadius = 0.25 + Math.random() * 1.25; // 25% to 150% of max viewport dimension
     // Clamp center so the orbit stays within viewport (0..1)
     const margin = orbitRadius;
     return {
@@ -270,7 +270,7 @@ export function initWebGLBackground(canvas: HTMLCanvasElement): (() => void) | n
       startAngle: Math.random() * Math.PI * 2,
       speed: 0.3 + Math.random() * 0.7,
       opacity: 0.1 + Math.random() * 0.4,
-      dotRadius: 0.5, // 100% of viewport (radius = 50% of minDim, diameter = 100%)
+      dotRadius: 0.5 + Math.random() * 0.5, // 50% to 100% of max(viewport width, height)
     };
   });
 
