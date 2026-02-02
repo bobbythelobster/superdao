@@ -156,6 +156,7 @@ void main() {
   float noiseR = rand(gl_FragCoord.xy, frame) - 0.5;
   float noiseG = rand(gl_FragCoord.xy, frame + 1000.0) - 0.5;
   float noiseB = rand(gl_FragCoord.xy, frame + 2000.0) - 0.5;
+  float speckleRand = rand(gl_FragCoord.xy, frame + 3000.0);
   
   // Mostly monochrome with subtle color variation
   float mono = noiseG;
@@ -170,6 +171,23 @@ void main() {
   float intensity = 0.18 * (1.0 - abs(luma - 0.5) * 0.4);
   
   color += grain * intensity;
+  
+  // Speckle gold (#da0) into random pixels - works for light and dark mode
+  vec3 goldColor = vec3(1.0, 0.75, 0.0); // Brighter, more saturated gold
+  float speckleThreshold = 0.97; // ~3% of pixels get gold speckle
+  if (speckleRand > speckleThreshold) {
+    float speckleIntensity = (speckleRand - speckleThreshold) / (1.0 - speckleThreshold);
+    // In dark mode (low luma): add gold as bright speckle
+    // In light mode (high luma): darken toward gold for contrast
+    if (luma < 0.5) {
+      // Dark mode: bright gold, strong blend
+      color = mix(color, goldColor, speckleIntensity * 0.9);
+    } else {
+      // Light mode: use amber/bronze for visibility against white
+      vec3 amberGold = vec3(0.8, 0.5, 0.0);
+      color = mix(color, amberGold, speckleIntensity * 0.75);
+    }
+  }
   
   fragColor = vec4(color, 1.0);
 }
